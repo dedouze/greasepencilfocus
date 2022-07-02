@@ -1,7 +1,8 @@
 This is the Greasepencil focus addon for Blender to help work faster with multiple GP objects and multiple layers with repeating actions
 
 This project is still in development, but is already working.
-To donate and support my work : 
+
+## To donate and support my work : 
 https://tipeee.com/dedouze
 
 ## demo 
