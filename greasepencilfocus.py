@@ -36,6 +36,11 @@ import time
 # strokeAxisSelectHandler = object()
 #layerRenameHandler = object()
 
+
+
+
+
+
 class GREASEPENCILFOCUS_Props(PropertyGroup):
     addon_tab: EnumProperty(
         name="COLLECTION",
@@ -259,6 +264,9 @@ def saveLayerPreferences(object, layerName, values):
     
     log("<<<< Saved to layer ID " + layerName)
     log(values)
+
+
+
         
 
 def layer_selected_callback():
@@ -459,6 +467,7 @@ addon_keymaps = []
 def on_reload(dummy):
     init_handlers()
 
+
 def init_handlers():
     
     bpy.types.Scene.greasepencilfocus = PointerProperty(type=GREASEPENCILFOCUS_Props)
@@ -474,6 +483,8 @@ def init_handlers():
     )
 
     ############# SUBSCRIBE TO LAYER SWITCH
+
+    
 
     subscribe_to_gp = bpy.types.GreasePencilLayers, "active_index"
     bpy.msgbus.subscribe_rna(
@@ -541,7 +552,38 @@ def init_handlers():
     ############# Object listener
     init_active_object_listeners()
 
+
+def active_layer_switch_handler(scene):
+    # Access the active object
+    active_object = bpy.context.active_object
+
+    # Check if the active object is a grease pencil object
+    if active_object.type == 'GPENCIL':
+        # Access the grease pencil data
+        gpencil_data = active_object.data
+
+        # Access the active grease pencil layer
+        active_layer = gpencil_data.layers.active
+
+        # Check if the active layer has changed
+        if active_object.get("active_gpencil_layer") != active_layer.info:
+            # Update the active layer information
+            active_object["active_gpencil_layer"] = active_layer.info
+
+            # Do something with the active grease pencil layer
+            #print("Active Grease Pencil Layer switched to:", active_layer.info)
+            layer_selected_callback()
+        else:
+            # Do something if the active object is not a grease pencil object
+            #print("The layer is not switched")
+
+
+
+
 def init_context():
+
+    # Register the handler
+    bpy.app.handlers.depsgraph_update_post.append(active_layer_switch_handler)
     
     #bpy.types.Scene.colors = bpy.props.CollectionProperty(type=ColorItem)
     #bpy.context.scene.colors.add()
