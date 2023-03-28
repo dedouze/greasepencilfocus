@@ -36,6 +36,11 @@ import time
 # strokeAxisSelectHandler = object()
 #layerRenameHandler = object()
 
+
+
+
+
+
 class GREASEPENCILFOCUS_Props(PropertyGroup):
     addon_tab: EnumProperty(
         name="COLLECTION",
@@ -259,6 +264,9 @@ def saveLayerPreferences(object, layerName, values):
     
     log("<<<< Saved to layer ID " + layerName)
     log(values)
+
+
+
         
 
 def layer_selected_callback():
@@ -458,8 +466,31 @@ addon_keymaps = []
 @persistent
 def on_reload(dummy):
     init_handlers()
+    bpy.app.handlers.depsgraph_update_post.append(active_layer_switch_handler)
+    
+def active_layer_switch_handler(scene):
+    # Access the active object
+    active_object = bpy.context.active_object
 
-def init_handlers():
+    # Check if the active object is a grease pencil object
+    if active_object.type == 'GPENCIL':
+        # Access the grease pencil data
+        gpencil_data = active_object.data
+
+        # Access the active grease pencil layer
+        active_layer = gpencil_data.layers.active
+
+        # Check if the active layer has changed
+        if active_object.get("active_gpencil_layer") != active_layer.info:
+            # Update the active layer information
+            active_object["active_gpencil_layer"] = active_layer.info
+
+            # Do something with the active grease pencil layer
+            print("Active Grease Pencil Layer switched to:", active_layer.info)
+            layer_selected_callback()
+
+
+def init_handlers():    
     
     bpy.types.Scene.greasepencilfocus = PointerProperty(type=GREASEPENCILFOCUS_Props)
     subscribe_owner = bpy.types.Scene.greasepencilfocus # apparently any python object can be owner ??
@@ -475,13 +506,15 @@ def init_handlers():
 
     ############# SUBSCRIBE TO LAYER SWITCH
 
-    subscribe_to_gp = bpy.types.GreasePencilLayers, "active_index"
-    bpy.msgbus.subscribe_rna(
-        key=subscribe_to_gp,
-        owner=subscribe_owner,
-        args=(),
-        notify=layer_selected_callback
-    )
+    
+
+    # subscribe_to_gp = bpy.types.GreasePencilLayers, "active_index"
+    # bpy.msgbus.subscribe_rna(
+    #     key=subscribe_to_gp,
+    #     owner=subscribe_owner,
+    #     args=(),
+    #     notify=layer_selected_callback
+    # )
 
     ############# SUBSCRIBE TO GP BRUSH TYPE SWITCH
     log("GP focus addon init_handlers")
@@ -541,7 +574,12 @@ def init_handlers():
     ############# Object listener
     init_active_object_listeners()
 
+
+
+
+
 def init_context():
+
     
     #bpy.types.Scene.colors = bpy.props.CollectionProperty(type=ColorItem)
     #bpy.context.scene.colors.add()
@@ -1391,7 +1429,6 @@ class SwitchToObjectOperator(Operator):
 
         # switch the popup sub tab to layers
         props.tool_tab = "LAYERS"
-        
 
         return {'FINISHED'}
 
@@ -1448,7 +1485,7 @@ def register():
     log("GP focus addon register")
 
     # hack : workspaces and scenes not immediately available, wait 0.5sec
-    bpy.app.timers.register(init_context, first_interval=0.5)
+    bpy.app.timers.register(init_context, first_interval=2.0)
 
     # persistent function
     bpy.app.handlers.load_post.append(on_reload)
