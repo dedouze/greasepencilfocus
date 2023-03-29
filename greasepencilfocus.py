@@ -273,9 +273,8 @@ class clickInGpHistoryOperator(bpy.types.Operator):
     bl_idname = "object.click_in_gp_objects_history"
     bl_label = "Select Grease Pencil Object"
     bl_options = {'REGISTER', 'UNDO'}
-
     object_name: bpy.props.StringProperty(name="Grease Pencil Object")
-
+    
     def execute(self, context):
         scene = context.scene
 
@@ -283,7 +282,8 @@ class clickInGpHistoryOperator(bpy.types.Operator):
         if context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        obj = bpy.data.objects[self.object_name]
+        object_name = self.properties.object_name if hasattr(self.properties, "object_name") else self.object_name
+        obj = bpy.data.objects[object_name]
         bpy.ops.object.select_all(action='DESELECT')
         obj.select_set(True)
         context.view_layer.objects.active = obj
@@ -735,13 +735,19 @@ def _draw_gp_objects(self, layout, context):
     box = layout.box()
     col = box.column(align=True)
 
-    col.label(text="most recent used Grease Pencil Objects:")
+    col.label(text="Most recently used Grease Pencil Objects:")
     
     if bpy.data.objects: # do nothing if the scene is empty
         for obj in active_gp_objects_history:
             if obj is not None and obj.name and (obj.name in bpy.data.objects):  # Check if the object still exists and was not deleted
-                op = col.operator("object.click_in_gp_objects_history", text=obj.name)
-                op.object_name = obj.name
+                selectable = obj in context.view_layer.objects.values()  # Check if the object is selectable in the current View Layer
+                if selectable:
+                    op = col.operator("object.click_in_gp_objects_history", text=obj.name).object_name = obj.name
+                else:
+                    # op = col.operator("object.click_in_gp_objects_history", text=obj.name, emboss=False,icon='UNLINKED').object_name = obj.name  # Draw the operator with greyed out text and an icon indicating it's not selectable
+                    # op.enabled = False
+                    #the enabled false is not working, let's just remove the object
+                    active_gp_objects_history.remove(obj)  # Remove the object from the list if it doesn't exist
             else:
                 active_gp_objects_history.remove(obj)  # Remove the object from the list if it doesn't exist
 
