@@ -14,9 +14,9 @@ Required version of Blender :
 - Blender 3.1 or newer
 
 Steps :
-- Select "code" and download as zip file on your computer
+- Select "code" and download as zip file on your computer, unzip the folder
 - In Blender top menu, Edit > Preferences > Add-ons, click on "Install" in the top bar
-- Browse and select the "greasepencilfocus.zip" file
+- Browse and select the "greasepencilfocus.py" file
 - Activate the addon with the checkbox. The addon now works automatically with all yout Grease Pencil objects
 - Use crt + shift + F to invoke the popup. The shortcut can be changed in the Editt > Preferences > Add-ons panel
 
