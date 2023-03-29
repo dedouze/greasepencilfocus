@@ -18,6 +18,7 @@ bl_info = {
 # - retrieve data when layers are renamed, and delete data from old layer names
 # - add more layer actions in the popup
 
+
 import os
 import bpy
 from bpy.props import *
@@ -28,18 +29,8 @@ from bpy.props import BoolProperty, StringProperty, IntProperty
 from bpy.types import PropertyGroup, UIList, Operator
 import time
 
-# layerSelectHandler = object()
-# objectSelectHandler = object()
-# materialSelectHandler = object()
-# brushSelectHandler = object()
-# strokePlacementSelectHandler = object()
-# strokeAxisSelectHandler = object()
-#layerRenameHandler = object()
-
-
-
-
-
+# Global list to store the last 5 selected Grease Pencil objects
+active_gp_objects_history = []
 
 class GREASEPENCILFOCUS_Props(PropertyGroup):
     addon_tab: EnumProperty(
@@ -47,7 +38,7 @@ class GREASEPENCILFOCUS_Props(PropertyGroup):
         description="",
         items=[
             ('ACTIVE_OBJECT', "Current", ""),
-            ('GP_OBJECTS', "All", "")
+            ('GP_OBJECTS', "Recent", "")
         ],
         default='ACTIVE_OBJECT')
         
@@ -72,8 +63,7 @@ class GREASEPENCILFOCUS_Props(PropertyGroup):
             ('BELOW', "Below current layer", "")
         ],
         default='OVER')
-    # auto_lock: bpy.props.BoolProperty(name='Auto lock unselected layers', default=False)
-    # auto_hide: bpy.props.BoolProperty(name='Auto hide unselected layers', default=False)
+    
     add_mat_name: bpy.props.StringProperty(name='Material Name', subtype = "NONE", default='Material')
     add_mat_show_stroke: bpy.props.BoolProperty(name='Show Stroke', default=True)
     add_mat_stroke_color: bpy.props.FloatVectorProperty(
@@ -98,10 +88,9 @@ def get_addon_preferences():
     addon_prefs = bpy.context.preferences.addons[addon_name].preferences
     return (addon_prefs)
 
-def obj_selected_callback():
+def obj_selected_callback(*args):
     log("object selected!")
 
-    #todo :
     load_object_gp_settings()
     init_active_object_listeners()
 
@@ -121,15 +110,6 @@ def load_object_view_settings():
         region3d.view_perspective = values['view_perspective']
         view3d.lens = values['lens']
 
-        # rv3d.view_distance = values['view_distance']
-        # rv3d.view_camera_zoom = values['view_camera_zoom']
-        # rv3d.view_camera_offset = values['view_camera_offset']
-        # rv3d.is_perspective = values['is_perspective']
-        # rv3d.view_perspective = values['view_perspective']
-        # rv3d.view_location = values['view_location']
-        # rv3d.view_matrix = values['view_matrix']
-        # rv3d.view_rotation = values['view_rotation']
-    
 def load_object_gp_settings():
 
     props = bpy.context.scene.greasepencilfocus
@@ -138,6 +118,8 @@ def load_object_gp_settings():
 
     if not bpy.context.active_object or bpy.context.active_object.type != "GPENCIL":
         return
+
+    update_active_gp_objects_history(bpy.context.active_object)
 
     log("load gp settings for object " + bpy.context.active_object.name + ":")
 
@@ -149,23 +131,6 @@ def load_object_gp_settings():
     if lock_axis_key in bpy.context.active_object and bpy.context.active_object[lock_axis_key] != bpy.context.scene.tool_settings.gpencil_stroke_placement_view3d:
         bpy.context.scene.tool_settings.gpencil_sculpt.lock_axis = bpy.context.active_object[lock_axis_key]
 
-# Listen to layer name change. Does not work !!! :/
-
-#def layer_renamed_callback():
-#    print ("layer renamed to " + bpy.context.active_object.data.layers.active.info)
-#    save_last_tool()
-#    
-
-#subscribe_to_name = bpy.types.LayerObjects, "active.info"
-
-#bpy.msgbus.subscribe_rna(
-#    key=subscribe_to_name,
-#    owner=layerRenameHandler,
-#    args=(),
-#    notify=layer_renamed_callback)
-    
-# Listen to layer switch
-    
 def get_area_space():
     
     for area in bpy.context.screen.areas:
@@ -214,15 +179,6 @@ def view_updated_callback(rv3d, arg1):
 
         log('view changed for object')
 
-        # stored_view.distance = region3d.view_distance
-        # stored_view.location = region3d.view_location
-        # stored_view.rotation = region3d.view_rotation
-        # stored_view.perspective_matrix_md5 = POV._get_perspective_matrix_md5(region3d)
-        # stored_view.perspective = region3d.view_perspective
-        # stored_view.lens = view3d.lens
-        # stored_view.clip_start = view3d.clip_start
-        # stored_view.clip_end = view3d.clip_end
-
         bpy.context.active_object['last_view_settings'] = {
             'view_distance': region3d.view_distance,
             # 'view_camera_zoom': region3d.view_camera_zoom,
@@ -266,9 +222,6 @@ def saveLayerPreferences(object, layerName, values):
     log(values)
 
 
-
-        
-
 def layer_selected_callback():
     log("layer selected " + bpy.context.active_object.data.layers.active.info)
     
@@ -300,32 +253,47 @@ def layer_selected_callback():
     current_active_tool = tools.from_space_view3d_mode(bpy.context.mode).idname
     log(current_active_tool)
 
-#bpy.context.scene.tool_settings.gpencil_paint
 
-#def tool_selected_callback():
-#    #tools = bpy.context.workspace.tools 
-#    #current_active_tool = tools.from_space_view3d_mode(bpy.context.mode).idname
-#    
-#    log("brush selected " + bpy.context.scene.tool_settings.gpencil_paint.brush)
-#       
-#subscribe_to_tool = bpy.types.GreasePencilBrushes, "active_index"
-#bpy.types.GreasePencilBrushes.something = object()
-#bpy.msgbus.subscribe_rna(key=subscribe_to_tool, owner=bpy.types.GreasePencilBrushes.something, args=(), notify=tool_selected_callback)
+def update_active_gp_objects_history(obj):
+    global active_gp_objects_history
+    
+    if obj.type == 'GPENCIL':
+        if obj not in active_gp_objects_history:
+            active_gp_objects_history.insert(0, obj)
+        else:
+            active_gp_objects_history.remove(obj)
+            active_gp_objects_history.insert(0, obj)
 
+    preferences = get_addon_preferences()
+        
+    if len(active_gp_objects_history) > preferences.objects_history_length:
+        del active_gp_objects_history[-1]
 
-#def factory_callback(func):
+class clickInGpHistoryOperator(bpy.types.Operator):
+    bl_idname = "object.click_in_gp_objects_history"
+    bl_label = "Select Grease Pencil Object"
+    bl_options = {'REGISTER', 'UNDO'}
 
-#    def callback(*args, **kwargs):
-#        save_last_tool()
-#        idname = args[2]
-#        log("new tool selected " + idname)
-#        return func(*args, **kwargs)
-#    return callback
+    object_name: bpy.props.StringProperty(name="Grease Pencil Object")
 
-#space_toolsystem_common.activate_by_id = factory_callback(
-#    space_toolsystem_common.activate_by_id
-#)
+    def execute(self, context):
+        scene = context.scene
 
+        # Change to object mode before selecting another object
+        if context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        obj = bpy.data.objects[self.object_name]
+        bpy.ops.object.select_all(action='DESELECT')
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+
+        # Switch to draw mode if "force_draw_mode" is enabled
+        if scene.gpencil_force_draw_mode:
+            bpy.ops.object.mode_set(mode='PAINT_GPENCIL')
+        
+        return {'FINISHED'}
+    
 def workspace_tools_rna_callback(workspace):
     idname = workspace.tools[-1].idname
     log("tool selected " + idname)
@@ -431,17 +399,7 @@ class LaunchModal(bpy.types.Operator):
     bl_label = "Focus Popup"
     bl_idname = "greasepencil.focuspopup"
     bl_options = {'REGISTER', 'UNDO'}
-    
-    # def invoke(self, context, event):
-    #     bpy.ops.wm.call_menu(name=LayersPickMenu.bl_idname)
-    #     return {'RUNNING_MODAL'}
 
-    
-	# bl_idname = "greasepencilfocus.misc_menu"
-	# bl_label = "Misc Menu"
-	# bl_description = ""
-	# bl_options = {'REGISTER', 'UNDO'}
-    # 
 
     def invoke(self, context, event):
 		# addon_prefs = preference()
@@ -473,7 +431,7 @@ def active_layer_switch_handler(scene):
     active_object = bpy.context.active_object
 
     # Check if the active object is a grease pencil object
-    if active_object.type == 'GPENCIL':
+    if active_object and active_object.type == 'GPENCIL':
         # Access the grease pencil data
         gpencil_data = active_object.data
 
@@ -503,18 +461,6 @@ def init_handlers():
         args=(),
         notify=obj_selected_callback
     )
-
-    ############# SUBSCRIBE TO LAYER SWITCH
-
-    
-
-    # subscribe_to_gp = bpy.types.GreasePencilLayers, "active_index"
-    # bpy.msgbus.subscribe_rna(
-    #     key=subscribe_to_gp,
-    #     owner=subscribe_owner,
-    #     args=(),
-    #     notify=layer_selected_callback
-    # )
 
     ############# SUBSCRIBE TO GP BRUSH TYPE SWITCH
     log("GP focus addon init_handlers")
@@ -573,28 +519,18 @@ def init_handlers():
 
     ############# Object listener
     init_active_object_listeners()
+    
 
+    # Add "force_draw_mode" property to the scene
+    bpy.types.Scene.gpencil_force_draw_mode = bpy.props.BoolProperty(
+        name="Force Draw Mode",
+        description="Automatically switch to draw mode when selecting an object from the history list",
+        default=True
+    )
 
-
-
+    populate_gp_objects_history()
 
 def init_context():
-
-    
-    #bpy.types.Scene.colors = bpy.props.CollectionProperty(type=ColorItem)
-    #bpy.context.scene.colors.add()
-
-    # bpy.types.Scene.mytool_color = bpy.props.FloatVectorProperty(
-    #     name = "Color Picker",
-    #     subtype = "COLOR",
-    #     size = 4,
-    #     min = 0.0,
-    #     max = 1.0,
-    #     default = (1.0,1.0,1.0,1.0))
-
-    # for (prop_name, prop_value) in ADD_MATERIAL_PROPS:
-    #     setattr(bpy.types.Scene, prop_name, prop_value)
-
     init_handlers()
     register_keymaps()
 
@@ -680,6 +616,15 @@ class GreasePencilFocusAddonPreferences(AddonPreferences):
         update = refresh_preferences
     )
 
+    objects_history_length: IntProperty(
+        name = "Objects history length",
+        subtype = "NONE",
+        default = 5,
+        update = refresh_preferences,
+        min = 2,
+        max = 100
+    )
+
     def draw(self, context):
         layout = self.layout
 
@@ -698,6 +643,7 @@ class GreasePencilFocusAddonPreferences(AddonPreferences):
         row = col.row()
         row.alignment ="RIGHT"
         row.prop(self, "popup_width")
+        row.prop(self, "objects_history_length")
         row.prop(self, "debug_mode")
 
 # ****************** NEW PANELS
@@ -711,30 +657,6 @@ def panel_main_menu(self, context):
     #######################################
     if props.addon_tab == "ACTIVE_OBJECT":
         #######################################
-        # row = layout.row()
-        # row.scale_x = 1
-        # if bpy.context.view_layer.active_layer_collection.name == "Master Collection":
-        # 	row.operator("greasepencilfocus.set_master_collection",text="",icon="KEYFRAME_HLT",emboss=False)
-        # else:
-        # row.operator("greasepencilfocus.set_master_collection",text="",icon="KEYFRAME",emboss=False)
-
-        # row.operator("greasepencilfocus.new_collection", text="", icon="COLLECTION_NEW")
-        # row.separator()
-        # rows = row.row(align=True)
-        # if len(bpy.context.scene.collection.objects) == 0:
-        #     rows.active=False
-        # rows.operator("greasepencilfocus.select_master",text="m : "+ str(len(bpy.context.scene.collection.objects)),icon="NONE",emboss=False)
-
-        # rows = row.row(align=True)
-        # rows.prop(props,"colle_ui_hide_select",text="",icon="RESTRICT_SELECT_OFF")
-        # rows.prop(props,"colle_ui_hide_viewport",text="",icon="RESTRICT_VIEW_OFF")
-        # rows.prop(props,"colle_ui_hide_render",text="",icon="RESTRICT_RENDER_OFF")
-
-        #pick_mini_menu(self, context,row)
-
-        #layout.use_property_split = False
-        # view_layer = context.view_layer
-        
 
         # layout.prop(addon_prefs,"tool_tab", expand=True)
         if props.tool_tab == "LAYERS":
@@ -758,75 +680,74 @@ def collection_manager_menu(self, context, layout):
 							   cm, "cm_list_index",
 							   rows=15,
 							   sort_lock=True)
-def listLayerCollection(layerCollections, col):
-    count_gp_obj = 0
-    for item in layerCollections:
-        if not item.is_visible:
-            continue
-        collection = item.collection
-        row = col.row(align=True)
-        row.label(text=collection.name,icon="OUTLINER_COLLECTION")
-        row.active = False
+# def listLayerCollection(layerCollections, col):
+#     count_gp_obj = 0
+#     for item in layerCollections:
+#         if not item.is_visible:
+#             continue
+#         collection = item.collection
+#         row = col.row(align=True)
+#         row.label(text=collection.name,icon="OUTLINER_COLLECTION")
+#         row.active = False
 
-        for object in collection.all_objects:
-            if object.type != 'GPENCIL':
-                continue
-            if object.name not in bpy.context.view_layer.objects:
-                # what is this case? object not in view_layer ??
-                continue
+#         for object in collection.all_objects:
+#             if object.type != 'GPENCIL':
+#                 continue
+#             if object.name not in bpy.context.view_layer.objects:
+#                 # what is this case? object not in view_layer ??
+#                 continue
             
-            count_gp_obj += 1
-            row = col.row(align=True)
+#             count_gp_obj += 1
+#             row = col.row(align=True)
 
-            # row_l = row.split(align=True,factor=1)
-            # row_l.label(text=object.name,icon="NONE")
+#             # row_l = row.split(align=True,factor=1)
+#             # row_l.label(text=object.name,icon="NONE")
             
-            row_i = row.row(align=True)
-            row_i.operator(SwitchToObjectOperator.bl_idname, text=object.name, icon="OUTLINER_OB_GREASEPENCIL", emboss=False).object_name = object.name
+#             row_i = row.row(align=True)
+#             row_i.operator(SwitchToObjectOperator.bl_idname, text=object.name, icon="OUTLINER_OB_GREASEPENCIL", emboss=False).object_name = object.name
             
             
-            row_i.operator(SwitchObjectVisibility.bl_idname, icon= "HIDE_ON" if object.hide_get() else "HIDE_OFF", emboss=False, text="").object_name = object.name
+#             row_i.operator(SwitchObjectVisibility.bl_idname, icon= "HIDE_ON" if object.hide_get() else "HIDE_OFF", emboss=False, text="").object_name = object.name
             
-            row_i.prop(object, "hide_render", icon='RESTRICT_RENDER_OFF', emboss=False, text="")
-            row_i.active = (bpy.context.active_object == object)
+#             row_i.prop(object, "hide_render", icon='RESTRICT_RENDER_OFF', emboss=False, text="")
+#             row_i.active = (bpy.context.active_object == object)
 
         
-        # no need to loop in children collection, already visible in previous list !
+#         # no need to loop in children collection, already visible in previous list !
 
-        # if item.children:
-        #     listLayerCollection(item.children, col)
-    if count_gp_obj == 0:
-        col.separator()
-        row = col.row(align=True)
-        row.label(text="You don't have any visible Greasepencil object")
-        row.active = False
+#         # if item.children:
+#         #     listLayerCollection(item.children, col)
+#     if count_gp_obj == 0:
+#         col.separator()
+#         row = col.row(align=True)
+#         row.label(text="You don't have any visible Greasepencil object")
+#         row.active = False
 
                 
 def _draw_gp_objects(self, layout, context):
+    global active_gp_objects_history
 
     props = context.scene.greasepencilfocus
 
     col = layout.column(align=True)
     log("list GP objects")
-    
-    
-    row = col.row()
-    row.prop(props, 'save_view_on_object', text="Auto save view")
-    col.separator()
-    row.prop(props, 'force_draw_mode', text="Force draw mode")
 
-    row = col.row()
-    col.separator()
-    row.alignment ="RIGHT"
-    
-    row.label(text="Fade", icon="NONE")
-    row.operator(SwitchObjectsFadeGPOperator.bl_idname, text="", icon= "OUTLINER_OB_GREASEPENCIL", emboss=(context.space_data.overlay.use_gpencil_fade_gp_objects))
-    row.operator(SwitchObjectsFadeOperator.bl_idname, text="", icon= "OUTLINER_OB_MESH", emboss=(context.space_data.overlay.use_gpencil_fade_objects))
-
-    
     box = layout.box()
+    col = box.column(align=True)
 
-    listLayerCollection(bpy.context.view_layer.layer_collection.children, box)
+    col.label(text="most recent used Grease Pencil Objects:")
+    
+    if bpy.data.objects: # do nothing if the scene is empty
+        for obj in active_gp_objects_history:
+            if obj is not None and obj.name and (obj.name in bpy.data.objects):  # Check if the object still exists and was not deleted
+                op = col.operator("object.click_in_gp_objects_history", text=obj.name)
+                op.object_name = obj.name
+            else:
+                active_gp_objects_history.remove(obj)  # Remove the object from the list if it doesn't exist
+
+    # Draw "Force Draw Mode" checkbox
+    scene = context.scene
+    layout.prop(scene, "gpencil_force_draw_mode")
         
 class ColorItem(bpy.types.PropertyGroup):
     color = bpy.props.FloatVectorProperty(
@@ -837,6 +758,26 @@ class ColorItem(bpy.types.PropertyGroup):
                  max = 1.0,
                  default = (1.0,1.0,1.0,1.0)
                  )
+    
+def populate_gp_objects_history():
+    log('populate_gp_objects_history')
+    global active_gp_objects_history
+
+    #in case we load a new scene (after load_post), empty the history
+    active_gp_objects_history.clear()
+    
+    context = bpy.context
+    objects = context.scene.objects
+    active_obj = context.view_layer.objects.active
+    
+    # Pre-populate history list with first 5 Grease Pencil objects in the scene
+    grease_pencil_objects = [obj for obj in objects if obj.type == 'GPENCIL']
+    active_gp_objects_history.extend(grease_pencil_objects[:5])
+    
+    # Move active Grease Pencil object to the beginning of the list
+    if active_obj and active_obj.type == 'GPENCIL':
+        update_active_gp_objects_history(active_obj)
+        log('object already active added')
 
 def _draw_materials(self, layout, context):
     
@@ -912,30 +853,6 @@ def _draw_add_layer(self, layout, context):
     row_s_obj.tab_name = "LAYERS"
     row.separator()
 
-# class GPOBJECT_UL_items(UIList):
-
-#     def filter_items(self, context, data, propname):
-        
-
-#         ordered = []
-#         items = getattr(data, propname)
-
-
-#         # Initialize with all items visible
-#         filtered = [self.bitflag_filter_item] * len(items)
-
-#         for i, item in enumerate(items):
-#             if item.type != 'GPENCIL':
-#                 filtered[i] &= ~self.bitflag_filter_item
-
-#         return filtered, ordered
-
-#     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
-#         split = layout.row(align=True)
-#         split.prop(item, "name", icon="NONE", emboss=(data.layers.active_index == index), text="")
-#         # split.prop(item, "hide", icon='HIDE_OFF', emboss=False, text="")
-#         # split.prop(item, "lock", icon='UNLOCKED', emboss=False, text="")
-#         # split.active = (not item.lock)
         
 
 class LAYERS_UL_items(UIList):
@@ -944,131 +861,12 @@ class LAYERS_UL_items(UIList):
     
     def draw_filter(self, context, layout):
         layout.separator()
-        # col=layout.column(align=True)
-        # row=col.row(align=True)
-        # row.prop(self, 'filter_reverse_index', text='', icon='VIEWZOOM')
-        # row.prop(self, 'filter_none', text='', icon='ARROW_LEFTRIGHT')
-
-
-    # def filter_items(self, context, data, propname):
-    #     """Filter and order items in the list."""
-
-    #     filtered = []
-    #     items = data.layers #getattr(data, propname)
-    #     # ordered = [index for index, item in enumerate(items)]
-    #     ordered = [index for index, item in enumerate(reversed(items))]
-       
-    #     return filtered, ordered
-
-    # use_name_reverse: bpy.props.BoolProperty(
-    #     name="Reverse Name",
-    #     default=True,
-    #     options=set(),
-    #     description="Reverse name sort order",
-    # )
-
-    # # This properties tells whether to sort the list according to
-    # # the alphabetical order of the names.
-    # use_order_name: bpy.props.BoolProperty(
-    #     name="Name",
-    #     default=False,
-    #     options=set(),
-    #     description="Sort groups by their name (case-insensitive)",
-    # )
-
-    # # This property is the value for a simple name filter.
-    # filter_string: bpy.props.StringProperty(
-    #     name="filter_string",
-    #     default = "",
-    #     description="Filter string for name"
-    # )
-
-    # # This property tells whether to invert the simple name filter
-    # filter_invert: bpy.props.BoolProperty(
-    #     name="Invert",
-    #     default = False,
-    #     options=set(),
-    #     description="Invert Filter"
-    # )
-
-    # #-------------------------------------------------------------------------
-    # # This function does two things, and as a result returns two arrays:
-    # # flt_flags - this is the filtering array returned by the filter
-    # #             part of the function. It has one element per item in the
-    # #             list and is set or cleared based on whether the item
-    # #             should be displayed.
-    # # flt_neworder - this is the sorting array returned by the sorting
-    # #             part of the function. It has one element per item
-    # #             the item is the new position in order for the
-    # #             item.
-    # # The arrays must be the same length as the list of items or empty
-    # def filter_items(self, context,
-    #                 data, # Data from which to take Collection property
-    #                 property # Identifier of property in data, for the collection
-    #     ):
-
-
-    #     items = getattr(data, property)
-    #     if not len(items):
-    #         return [], []
-
-    #     # https://docs.blender.org/api/current/bpy.types.UI_UL_list.html
-    #     # helper functions for handling UIList objects.
-    #     if self.filter_string:
-    #         flt_flags = bpy.types.UI_UL_list.filter_items_by_name(
-    #                 self.filter_string,
-    #                 self.bitflag_filter_item,
-    #                 items, 
-    #                 propname="info",
-    #                 reverse=self.filter_invert)
-    #     else:
-    #         flt_flags = [self.bitflag_filter_item] * len(items)
-
-    #     # https://docs.blender.org/api/current/bpy.types.UI_UL_list.html
-    #     # helper functions for handling UIList objects.
-    #     if self.use_order_name:
-    #         flt_neworder = bpy.types.UI_UL_list.sort_items_by_name(items, "info")
-    #         if self.use_name_reverse:
-    #             flt_neworder.reverse()
-    #     else:
-    #         flt_neworder = []    
-
-
-    #     return flt_flags, flt_neworder        
-
-    # def draw_filter(self, context,
-    #                 layout # Layout to draw the item
-    #     ):
-
-    #     row = layout.row(align=True)
-    #     row.prop(self, "filter_string", text="Filter", icon="VIEWZOOM")
-    #     row.prop(self, "filter_invert", text="", icon="ARROW_LEFTRIGHT")
-
-
-    #     row = layout.row(align=True)
-    #     row.label(text="Order by:")
-    #     row.prop(self, "use_order_name", toggle=True)
-
-    #     icon = 'TRIA_UP' if self.use_name_reverse else 'TRIA_DOWN'
-    #     row.prop(self, "use_name_reverse", text="", icon=icon)
 
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         # is_debug = preferences.debug_mode
         #split = layout.split(factor=0.3)
         split = layout.row(align=True)
         
-        #display_name = item.info
-
-        # if is_debug:
-        #     values = loadLayerPreferences(object, item.info)
-        #     display_name = "debug:"
-        #     if values is not None:
-        #         display_name += " " + values["brush_name"] + " " + str(values["brush_size"])
-        #     else:
-        #         display_name += " (no settings saved)"
-
-#        row_i.operator(SwitchToLayerOperator.bl_idname, text=display_name, icon="RIGHTARROW").layer_index = index
-#        row_i.active = (index == data.active_index)
 #        
         #split.prop(item, "info", icon='NONE', emboss=False, text=item.info)#"Index: %d" % (index)
         split.prop(item, "info", icon="NONE", emboss=(data.layers.active_index == index), text="")
@@ -1080,31 +878,6 @@ class LAYERS_UL_items(UIList):
         split.prop(item, "lock", icon='UNLOCKED', emboss=False, text="")
         split.active = (not item.lock)
 
-#        split.operator(SwitchToLayerOperator.bl_idname, text=display_name, icon="RIGHTARROW").layer_index = index
-        
-#        row_v = split.row(align=True)
-#        row_v.alignment ="RIGHT"
-#        row_v.ui_units_x=1.5
-#        if item.lock:
-#            row_v.active = False
-#        
-#        icon_name = 'HIDE_ON' if item.hide else 'HIDE_OFF'
-#        row_v_obj = row_v.operator(ToggleLayerPropertyOperator.bl_idname,text="",icon=icon_name,emboss=False)
-
-#        row_v_obj.layer_name = item.info
-#        row_v_obj.action = "hide"
-
-        ################################################
-#        row_l = split.row(align=True)
-#        row_l.alignment ="RIGHT"
-#        row_l.ui_units_x=1.5
-#        if item.lock:
-#            row_l.active = False
-#        
-#        icon_name = 'LOCKED' if item.lock else 'UNLOCKED'
-#        row_l_obj = row_l.operator(ToggleLayerPropertyOperator.bl_idname,text="",icon=icon_name,emboss=False)
-#        row_l_obj.layer_name = item.info
-#        row_l_obj.action = "lock"
 
 def _draw_layers(self, layout, context):
     if not context.active_object or context.active_object.type != "GPENCIL":
@@ -1152,64 +925,6 @@ def _draw_layers(self, layout, context):
         row = col.row()
         row.template_list("LAYERS_UL_items", "", object.data, "layers", object.data.layers, "active_index")
      
-        # for item in reversed(object.data.layers):
-            
-        #     row = col.row(align=True)
-
-        #     ################################################
-            
-        #     row_i = row.row(align=True)
-            
-        #     display_name = item.info
-
-        #     if is_debug:
-        #         values = loadLayerPreferences(object, item.info)
-        #         display_name = "debug:"
-        #         if values is not None:
-        #             display_name += " " + values["brush_name"] + " " + str(values["brush_size"])
-        #         else:
-        #             display_name += " (no settings saved)"
-
-        #     row_i.operator(SwitchToLayerOperator.bl_idname, text=display_name, icon="RIGHTARROW").layer_index = index
-        #     row_i.active = (index == active_index)
-
-        #     # row_l = row.split(align=True,factor=1)
-        #     # # row.prop(item,"info", text="")
-        #     # row_l.prop(text=item.info,icon="NONE",emboss=False,text="")
-        #     # if item.lock:
-        #     #     row_l.active = False
-
-        #     # sps.label(text=str(item.name),icon="NONE")
-
-        #     ################################################
-        #     row_v = row.row(align=True)
-        #     row_v.alignment ="RIGHT"
-        #     row_v.ui_units_x=1.5
-        #     if item.lock:
-        #         row_v.active = False
-            
-        #     row_v.prop(item, "hide", icon='HIDE_OFF', emboss=False, text="")
-            
-        #     # row_v_obj = row_v.operator(ToggleLayerPropertyOperator.bl_idname,text="",icon=icon_name,emboss=False)
-
-        #     # row_v_obj.layer_name = item.info
-        #     # row_v_obj.action = "hide"
-
-        #     ################################################
-        #     row_l = row.row(align=True)
-        #     row_l.alignment ="RIGHT"
-        #     row_l.ui_units_x=1.5
-        #     if item.lock:
-        #         row_l.active = False
-            
-        #     row_l.prop(item, "lock", icon='UNLOCKED', emboss=False, text="")
-
-        #     # row_l_obj = row_l.operator(ToggleLayerPropertyOperator.bl_idname,text="",icon=icon_name,emboss=False)
-        #     # row_l_obj.layer_name = item.info
-        #     # row_l_obj.action = "lock"
-
-        #     # 			col.separator()
-        #     index -= 1
 
     # Add material button
 
@@ -1308,21 +1023,6 @@ class SwitchToLayerOperator(Operator):
 
         context.active_object.data.layers.active_index = self.layer_index
 
-        # if props.auto_lock or props.auto_hide:
-        #     idx = 0
-        #     for layer in context.active_object.data.layers:
-        #         if idx != self.layer_index:
-        #             if props.auto_lock:
-        #                 layer.lock = True
-        #             if props.auto_hide:
-        #                 layer.hide = True
-        #         else:
-        #             if props.auto_lock:
-        #                 layer.lock = False
-        #             if props.auto_hide:
-        #                 layer.hide = False
-        #         idx += 1
-
         return {'FINISHED'}
 class SwitchAutoLockOperator(Operator):
     bl_idname = "greasepencilfocus.switch_auto_lock"
@@ -1395,42 +1095,42 @@ class SwitchObjectsFadeGPOperator(Operator):
 
         return {'FINISHED'}
 
-class SwitchToObjectOperator(Operator):
-    bl_idname = "greasepencilfocus.switch_to_object"
-    bl_label = "Switch to Object"
-    bl_description = "Go to this Greasepencil Object"
-    bl_options = {'REGISTER','UNDO'}
+# class SwitchToObjectOperator(Operator):
+#     bl_idname = "greasepencilfocus.switch_to_object"
+#     bl_label = "Switch to Object"
+#     bl_description = "Go to this Greasepencil Object"
+#     bl_options = {'REGISTER','UNDO'}
 
-    object_name : StringProperty(default="", name = "object name")
+#     object_name : StringProperty(default="", name = "object name")
 
-    def execute(self, context):
-        addon_name = os.path.splitext(__name__)[0]
-        log("switch to object:")
-        log(self.object_name)
+#     def execute(self, context):
+#         addon_name = os.path.splitext(__name__)[0]
+#         log("switch to object:")
+#         log(self.object_name)
 
-        props = context.scene.greasepencilfocus
+#         props = context.scene.greasepencilfocus
 
-        # first, deselect previous object :
-        if context.active_object:
-            context.active_object.select_set(False)
+#         # first, deselect previous object :
+#         if context.active_object:
+#             context.active_object.select_set(False)
 
-        # switch active object
-        bpy.context.view_layer.objects.active = bpy.context.view_layer.objects[self.object_name]#bpy.data.objects[self.object_name]
+#         # switch active object
+#         bpy.context.view_layer.objects.active = bpy.context.view_layer.objects[self.object_name]#bpy.data.objects[self.object_name]
 
-        # finally set selection to new object
-        bpy.data.objects[self.object_name].select_set(True)
+#         # finally set selection to new object
+#         bpy.data.objects[self.object_name].select_set(True)
 
-        # if force draw mode activated and object is on other mode, switch to draw mode
-        if props.force_draw_mode and bpy.context.active_object.mode != 'PAINT_GPENCIL':
-            bpy.ops.object.mode_set(mode="PAINT_GPENCIL")
+#         # if force draw mode activated and object is on other mode, switch to draw mode
+#         if props.force_draw_mode and bpy.context.active_object.mode != 'PAINT_GPENCIL':
+#             bpy.ops.object.mode_set(mode="PAINT_GPENCIL")
 
-        if props.save_view_on_object:
-            load_object_view_settings()
+#         if props.save_view_on_object:
+#             load_object_view_settings()
 
-        # switch the popup sub tab to layers
-        props.tool_tab = "LAYERS"
+#         # switch the popup sub tab to layers
+#         props.tool_tab = "LAYERS"
 
-        return {'FINISHED'}
+#         return {'FINISHED'}
 
 class SwitchObjectVisibility(Operator):
     bl_idname = "greasepencilfocus.switch_object_property"
@@ -1468,7 +1168,7 @@ def register():
     bpy.utils.register_class(GREASEPENCILFOCUS_Props)
     bpy.utils.register_class(GreasePencilFocusAddonPreferences)
     bpy.utils.register_class(SwitchToLayerOperator)
-    bpy.utils.register_class(SwitchToObjectOperator)
+    # bpy.utils.register_class(SwitchToObjectOperator)
     bpy.utils.register_class(SwitchAutoLockOperator)
     bpy.utils.register_class(SwitchLayersFadeOperator)
     bpy.utils.register_class(SwitchObjectsFadeOperator)
@@ -1481,6 +1181,7 @@ def register():
     #bpy.utils.register_class(ExamplePanel)
     bpy.utils.register_class(ColorItem)
     bpy.utils.register_class(LAYERS_UL_items)
+    bpy.utils.register_class(clickInGpHistoryOperator)
 
     log("GP focus addon register")
 
@@ -1497,7 +1198,7 @@ def unregister():
     bpy.utils.unregister_class(GREASEPENCILFOCUS_Props)
     bpy.utils.unregister_class(GreasePencilFocusAddonPreferences)
     bpy.utils.unregister_class(SwitchToLayerOperator)
-    bpy.utils.unregister_class(SwitchToObjectOperator)
+    # bpy.utils.unregister_class(SwitchToObjectOperator)
     bpy.utils.unregister_class(SwitchAutoLockOperator)
     bpy.utils.unregister_class(SwitchLayersFadeOperator)
     bpy.utils.unregister_class(AddMaterialOperator)
@@ -1508,14 +1209,10 @@ def unregister():
     bpy.utils.unregister_class(SwitchToSubTabOperator)
     bpy.utils.unregister_class(ColorItem)
     bpy.utils.unregister_class(LAYERS_UL_items)
+    bpy.utils.unregister_class(clickInGpHistoryOperator)
+
 
     bpy.msgbus.clear_by_owner(bpy.types.Scene.greasepencilfocus)
-    # bpy.msgbus.clear_by_owner(layerSelectHandler)
-    # bpy.msgbus.clear_by_owner(objectSelectHandler)
-    # bpy.msgbus.clear_by_owner(materialSelectHandler)
-    # bpy.msgbus.clear_by_owner(brushSelectHandler)
-    # bpy.msgbus.clear_by_owner(strokePlacementSelectHandler)
-    # bpy.msgbus.clear_by_owner(strokeAxisSelectHandler)
     
 
     for ws in bpy.data.workspaces:
